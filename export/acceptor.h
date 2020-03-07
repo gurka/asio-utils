@@ -22,72 +22,67 @@
  * SOFTWARE.
  */
 
-#ifndef NETWORK_SRC_ACCEPTOR_H_
-#define NETWORK_SRC_ACCEPTOR_H_
+#ifndef ASIOUTILS_ACCEPTOR_H_
+#define ASIOUTILS_ACCEPTOR_H_
 
 #include <functional>
 #include <memory>
 #include <utility>
 
-#include "logger.h"
+#include <asio.hpp>
 
-namespace network
+namespace asioutils
 {
 
-template <typename Backend>
 class Acceptor
 {
  public:
-  Acceptor(typename Backend::Service* io_context,
+  Acceptor(asio::io_context* io_context,
            int port,
-           std::function<void(typename Backend::Socket&&)> on_accept)
-    : m_acceptor(*io_context, port),
+           std::function<void(asio::ip::tcp::socket&&)> handler)
+    : m_acceptor(*io_context, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)),
       m_socket(*io_context),
-      m_on_accept(std::move(on_accept))
+      m_handler(std::move(handler))
+  {
+  }
+
+  Acceptor(const Acceptor&) = delete;
+  Acceptor& operator=(const Acceptor&) = delete;
+
+  void start()
   {
     accept();
   }
 
-  virtual ~Acceptor()
+  void stop()
   {
-    m_acceptor.cancel();
+    m_acceptor.close();
   }
-
-  // Delete copy constructors
-  Acceptor(const Acceptor&) = delete;
-  Acceptor& operator=(const Acceptor&) = delete;
 
  private:
   void accept()
   {
-    m_acceptor.async_accept(m_socket, [this](const typename Backend::ErrorCode& error_code)
+    m_acceptor.async_accept(m_socket, [this](const std::error_code& error_code)
     {
-      if (error_code == Backend::Error::operation_aborted)
+      if (!m_acceptor.is_open())
       {
-        // This instance might be deleted, so don't touch any instance variables
         return;
       }
 
-      if (error_code)
+      if (!error_code)
       {
-        LOG_DEBUG("Could not accept connection: %s", error_code.message().c_str());
-      }
-      else
-      {
-        LOG_INFO("Accepted connection");
-        m_on_accept(std::move(m_socket));
+        m_handler(std::move(m_socket));
       }
 
-      // Continue to accept new connections
       accept();
     });
   }
 
-  typename Backend::Acceptor m_acceptor;
-  typename Backend::Socket m_socket;
-  std::function<void(typename Backend::Socket&&)> m_on_accept;
+  asio::ip::tcp::acceptor m_acceptor;
+  asio::ip::tcp::socket m_socket;
+  std::function<void(asio::ip::tcp::socket&&)> m_handler;
 };
 
-}  // namespace network
+}  // namespace asioutils
 
-#endif  // NETWORK_SRC_ACCEPTOR_H_
+#endif  // ASIOUTILS_ACCEPTOR_H_
